@@ -1,0 +1,9 @@
+Package: com.faceless777angel.deadpixel
+Name: DEADPIXEL
+Version: 0.1.0
+Architecture: iphoneos-arm64
+Description: Realistic vertical LCD damage effect with green and purple lines.
+Maintainer: faceless777angel
+Author: faceless777angel
+Section: Tweaks
+Depends: firmware (>= 15.0)
