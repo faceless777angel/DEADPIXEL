@@ -1,3 +1,4 @@
+
 name: Build DEADPIXEL
 
 on:
@@ -20,12 +21,11 @@ jobs:
 
       - name: Install Theos
         run: |
-          git clone --recursive https://github.com/theos/theos.git $HOME/theos
-          git clone https://github.com/theos/sdks.git $HOME/theos/sdks
+          git clone --recursive https://github.com/theos/theos.git "$HOME/theos"
+          rm -rf "$HOME/theos/sdks"
+          git clone https://github.com/theos/sdks.git "$HOME/theos/sdks"
 
       - name: Build package
-        env:
-          THEOS: ${{ github.workspace }}/../theos
         run: |
           export THEOS="$HOME/theos"
           make clean
