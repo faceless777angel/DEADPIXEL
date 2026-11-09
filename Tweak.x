@@ -2,188 +2,117 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 
-@interface DPDamageView : UIView
+@interface DPDamageLayer : CALayer
 @end
 
-@implementation DPDamageView
+@implementation DPDamageLayer
 
-- (instancetype)initWithFrame:(CGRect)frame {
-    self = [super initWithFrame:frame];
+- (instancetype)init {
+    self = [super init];
     if (self) {
-        self.backgroundColor = UIColor.clearColor;
+        self.needsDisplayOnBoundsChange = YES;
+        self.contentsScale = UIScreen.mainScreen.scale;
         self.opaque = NO;
-        self.userInteractionEnabled = NO;
+        self.name = @"DEADPIXEL_DAMAGE";
+        self.drawsAsynchronously = YES;
     }
     return self;
 }
 
-- (void)drawRect:(CGRect)rect {
-    CGContextRef ctx = UIGraphicsGetCurrentContext();
+- (void)drawInContext:(CGContextRef)ctx {
     CGFloat w = self.bounds.size.width;
     CGFloat h = self.bounds.size.height;
-    CGFloat scale = UIScreen.mainScreen.scale;
+    CGFloat s = self.contentsScale;
 
-    NSArray *positions = @[
-        @0.06, @0.15, @0.25, @0.37, @0.49,
-        @0.61, @0.73, @0.85, @0.94
-    ];
+    if (w <= 0 || h <= 0) return;
 
-    for (NSUInteger i = 0; i < positions.count; i++) {
-        CGFloat x = [positions[i] floatValue] * w;
-        BOOL green = (i % 2 == 0);
+    // Небольшие неоднородные кластеры повреждённых субпикселей.
+    struct DPLine {
+        CGFloat x;
+        CGFloat width;
+        CGFloat alpha;
+        int color;
+    };
 
-        UIColor *color = green
-        ? [UIColor colorWithRed:0.05 green:1.0 blue:0.25 alpha:0.32]
-        : [UIColor colorWithRed:0.75 green:0.05 blue:1.0 alpha:0.32];
+    static const struct DPLine lines[] = {
+        {0.083, 0.45, 0.24, 0},
+        {0.084, 0.25, 0.12, 1},
+        {0.196, 0.35, 0.17, 1},
+        {0.197, 0.20, 0.10, 2},
+        {0.352, 0.55, 0.21, 0},
+        {0.354, 0.22, 0.11, 2},
+        {0.519, 0.35, 0.15, 1},
+        {0.521, 0.20, 0.09, 0},
+        {0.677, 0.50, 0.19, 0},
+        {0.679, 0.20, 0.10, 2},
+        {0.842, 0.40, 0.17, 1},
+        {0.844, 0.20, 0.09, 2}
+    };
 
-        CGFloat lineWidth = (i % 3 + 1) * scale;
+    for (NSUInteger i = 0; i < sizeof(lines) / sizeof(lines[0]); i++) {
+        const struct DPLine *p = &lines[i];
 
-        CGContextSetFillColorWithColor(ctx, color.CGColor);
-        CGContextFillRect(ctx, CGRectMake(x, 0, lineWidth, h));
+        UIColor *c;
+        if (p->color == 0) {
+            c = [UIColor colorWithRed:0.12 green:1.0 blue:0.32 alpha:p->alpha];
+        } else if (p->color == 1) {
+            c = [UIColor colorWithRed:0.72 green:0.12 blue:1.0 alpha:p->alpha];
+        } else {
+            c = [UIColor colorWithRed:0.15 green:0.45 blue:1.0 alpha:p->alpha];
+        }
 
-        CGContextSetFillColorWithColor(
-            ctx,
-            [UIColor colorWithWhite:0 alpha:0.18].CGColor
-        );
-        CGContextFillRect(
-            ctx,
-            CGRectMake(x + lineWidth, 0, scale, h)
-        );
+        CGContextSetFillColorWithColor(ctx, c.CGColor);
+        CGContextFillRect(ctx, CGRectMake(
+            p->x * w, 0, MAX(p->width / s, 0.35), h
+        ));
     }
 
-    // Лёгкая горизонтальная рябь
+    // Едва заметные локальные тёмные повреждения.
     CGContextSetFillColorWithColor(
-        ctx,
-        [UIColor colorWithWhite:1 alpha:0.025].CGColor
+        ctx, [UIColor colorWithWhite:0 alpha:0.10].CGColor
     );
 
-    for (CGFloat y = 0; y < h; y += 7 * scale) {
-        CGContextFillRect(
-            ctx,
-            CGRectMake(0, y, w, scale * 0.5)
-        );
-    }
+    CGContextFillRect(ctx, CGRectMake(w * 0.083, h * 0.28, 1.0, h * 0.13));
+    CGContextFillRect(ctx, CGRectMake(w * 0.352, h * 0.61, 0.8, h * 0.08));
+    CGContextFillRect(ctx, CGRectMake(w * 0.677, h * 0.18, 0.9, h * 0.17));
+
+    // Короткие горизонтальные срывы изображения.
+    CGContextSetFillColorWithColor(
+        ctx, [UIColor colorWithRed:0.55 green:0.85 blue:0.75 alpha:0.07].CGColor
+    );
+
+    CGContextFillRect(ctx, CGRectMake(w * 0.075, h * 0.36, w * 0.035, 0.7));
+    CGContextFillRect(ctx, CGRectMake(w * 0.345, h * 0.64, w * 0.025, 0.6));
+    CGContextFillRect(ctx, CGRectMake(w * 0.668, h * 0.24, w * 0.04, 0.7));
 }
 
 @end
 
-@interface DPPassthroughWindow : UIWindow
-@end
+%hook UIWindow
 
-@implementation DPPassthroughWindow
+- (void)layoutSubviews {
+    %orig;
 
-- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
-    return nil;
-}
+    // Не трогаем клавиатуру, системные диалоги и специальные окна.
+    if (self.windowLevel != UIWindowLevelNormal) return;
 
-@end
+    DPDamageLayer *damage = nil;
 
-@interface DPOverlayManager : NSObject
-
-@property(nonatomic, strong) DPPassthroughWindow *window;
-@property(nonatomic, strong) NSTimer *timer;
-
-- (void)install;
-- (void)tryInstall;
-
-@end
-
-@implementation DPOverlayManager
-
-+ (instancetype)shared {
-    static DPOverlayManager *manager;
-    static dispatch_once_t once;
-
-    dispatch_once(&once, ^{
-        manager = [DPOverlayManager new];
-    });
-
-    return manager;
-}
-
-- (void)tryInstall {
-    if (self.window) return;
-
-    UIWindowScene *scene = nil;
-
-    for (UIScene *candidate in
-         UIApplication.sharedApplication.connectedScenes) {
-        if ([candidate isKindOfClass:UIWindowScene.class] &&
-            candidate.activationState == UISceneActivationStateForegroundActive) {
-            scene = (UIWindowScene *)candidate;
+    for (CALayer *layer in self.layer.sublayers) {
+        if ([layer.name isEqualToString:@"DEADPIXEL_DAMAGE"]) {
+            damage = (DPDamageLayer *)layer;
             break;
         }
     }
 
-    if (!scene) {
-        dispatch_after(
-            dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC),
-            dispatch_get_main_queue(), ^{
-                [self tryInstall];
-            }
-        );
-        return;
-    }
-
-    self.window = [[DPPassthroughWindow alloc] initWithWindowScene:scene];
-
-    self.window.frame = scene.coordinateSpace.bounds;
-    self.window.windowLevel = UIWindowLevelAlert + 1;
-    self.window.backgroundColor = UIColor.clearColor;
-    self.window.opaque = NO;
-    self.window.userInteractionEnabled = YES;
-
-    UIViewController *controller = [UIViewController new];
-    controller.view = [[DPDamageView alloc] initWithFrame:self.window.bounds];
-    controller.view.autoresizingMask =
-        UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-
-    self.window.rootViewController = controller;
-    self.window.hidden = NO;
-
-    self.timer = [NSTimer scheduledTimerWithTimeInterval:25
-        target:self
-        selector:@selector(glitch)
-        userInfo:nil
-        repeats:YES];
-}
-
-- (void)install {
-    if (self.window) return;
-    [self tryInstall];
-}
-
-- (void)glitch {
-    UIView *view = self.window.rootViewController.view;
-    if (!view) return;
-
-    CGFloat x = (CGFloat)arc4random_uniform(7) - 3.0;
-    CGFloat y = (CGFloat)arc4random_uniform(5) - 2.0;
-
-    [UIView animateWithDuration:0.12 animations:^{
-        view.alpha = 0.65;
-        view.transform = CGAffineTransformMakeTranslation(x, y);
-    } completion:^(BOOL finished) {
-        [UIView animateWithDuration:0.2 animations:^{
-            view.alpha = 1.0;
-            view.transform = CGAffineTransformIdentity;
-        }];
-    }];
-}
-
-@end
-
-%ctor {
-    @autoreleasepool {
-        if ([NSBundle.mainBundle.bundleIdentifier
-             isEqualToString:@"com.apple.springboard"]) {
-
-            dispatch_after(
-                dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC),
-                dispatch_get_main_queue(), ^{
-                    [[DPOverlayManager shared] install];
-                }
-            );
-        }
+    if (!damage) {
+        damage = [DPDamageLayer layer];
+        damage.frame = self.bounds;
+        damage.contentsScale = UIScreen.mainScreen.scale;
+        [self.layer addSublayer:damage];
+    } else {
+        damage.frame = self.bounds;
     }
 }
+
+%end
