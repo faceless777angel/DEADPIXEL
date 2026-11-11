@@ -1,7 +1,8 @@
+
 {
     Filter = {
-        Bundles = (
-            "com.apple.springboard"
+        Classes = (
+            "UIWindow"
         );
     };
 }
