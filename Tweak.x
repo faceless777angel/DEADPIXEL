@@ -325,12 +325,21 @@ static void DPInstallDamageLayer(UIWindow *window) {
         %init(DPWindowHooks);
 
         dispatch_async(dispatch_get_main_queue(), ^{
-            UIApplication *application =
-                [UIApplication sharedApplication];
+    UIApplication *application =
+        [UIApplication sharedApplication];
 
-            for (UIWindow *window in application.windows) {
-                DPInstallDamageLayer(window);
-            }
-        });
+    for (UIScene *scene in application.connectedScenes) {
+
+        if (![scene isKindOfClass:[UIWindowScene class]]) {
+            continue;
+        }
+
+        UIWindowScene *windowScene = (UIWindowScene *)scene;
+
+        for (UIWindow *window in windowScene.windows) {
+            DPInstallDamageLayer(window);
+        }
+    }
+});
     }
 }
