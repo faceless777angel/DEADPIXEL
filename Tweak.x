@@ -1,6 +1,60 @@
 
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#import <objc/runtime.h>
+#import <math.h>
+
+static char kDPDamageLayerKey;
+
+typedef struct {
+    CGFloat x;
+    CGFloat widthPixels;
+    CGFloat alpha;
+    int color;
+} DPColumn;
+
+static void DPSetColor(CGContextRef ctx, int color, CGFloat alpha) {
+    switch (color) {
+        case 0:
+            CGContextSetRGBFillColor(ctx, 0.10, 1.00, 0.28, alpha);
+            break;
+        case 1:
+            CGContextSetRGBFillColor(ctx, 0.76, 0.12, 1.00, alpha);
+            break;
+        case 2:
+            CGContextSetRGBFillColor(ctx, 0.12, 0.42, 1.00, alpha);
+            break;
+        case 3:
+            CGContextSetRGBFillColor(ctx, 1.00, 0.12, 0.18, alpha);
+            break;
+        default:
+            CGContextSetRGBFillColor(ctx, 0.0, 0.0, 0.0, alpha);
+            break;
+    }
+}
+
+static void DPFill(
+    CGContextRef ctx,
+    CGFloat x,
+    CGFloat y,
+    CGFloat width,
+    CGFloat height,
+    int color,
+    CGFloat alpha
+) {
+    CGFloat scale = UIScreen.mainScreen.scale;
+    if (scale <= 0) scale = 2.0;
+
+    CGRect rect = CGRectMake(
+        round(x * scale) / scale,
+        round(y * scale) / scale,
+        MAX(1.0, round(width * scale)) / scale,
+        MAX(1.0, round(height * scale)) / scale
+    );
+
+    DPSetColor(ctx, color, alpha);
+    CGContextFillRect(ctx, rect);
+}
 
 @interface DPDamageLayer : CALayer
 @end
@@ -9,110 +63,274 @@
 
 - (instancetype)init {
     self = [super init];
+
     if (self) {
-        self.needsDisplayOnBoundsChange = YES;
-        self.contentsScale = UIScreen.mainScreen.scale;
-        self.opaque = NO;
         self.name = @"DEADPIXEL_DAMAGE";
-        self.drawsAsynchronously = YES;
+        self.opaque = NO;
+        self.backgroundColor = UIColor.clearColor.CGColor;
+        self.contentsScale = UIScreen.mainScreen.scale;
+        self.needsDisplayOnBoundsChange = YES;
     }
+
     return self;
 }
 
 - (void)drawInContext:(CGContextRef)ctx {
-    CGFloat w = self.bounds.size.width;
-    CGFloat h = self.bounds.size.height;
-    CGFloat s = self.contentsScale;
+    CGFloat width = self.bounds.size.width;
+    CGFloat height = self.bounds.size.height;
 
-    if (w <= 0 || h <= 0) return;
+    CGFloat scale = self.contentsScale;
+    if (scale <= 0) scale = UIScreen.mainScreen.scale;
+    if (width <= 0 || height <= 0) return;
 
-    // Небольшие неоднородные кластеры повреждённых субпикселей.
-    struct DPLine {
-        CGFloat x;
-        CGFloat width;
-        CGFloat alpha;
-        int color;
+    CGFloat pixel = 1.0 / scale;
+
+    CGContextSaveGState(ctx);
+    CGContextSetShouldAntialias(ctx, NO);
+    CGContextSetAllowsAntialiasing(ctx, NO);
+
+    // Основные повреждённые вертикальные субпиксели.
+    static const DPColumn columns[] = {
+        {0.0780, 1, 0.27, 0},
+        {0.0790, 1, 0.09, 1},
+
+        {0.1930, 1, 0.23, 1},
+        {0.1940, 1, 0.08, 2},
+
+        {0.3470, 1, 0.25, 0},
+        {0.3480, 1, 0.08, 2},
+
+        {0.5040, 1, 0.19, 1},
+        {0.5050, 1, 0.07, 0},
+
+        {0.6640, 1, 0.29, 0},
+        {0.6650, 1, 0.10, 1},
+
+        {0.8120, 1, 0.23, 1},
+        {0.8130, 1, 0.08, 2},
+
+        {0.9130, 1, 0.24, 0}
     };
 
-    static const struct DPLine lines[] = {
-        {0.083, 0.45, 0.24, 0},
-        {0.084, 0.25, 0.12, 1},
-        {0.196, 0.35, 0.17, 1},
-        {0.197, 0.20, 0.10, 2},
-        {0.352, 0.55, 0.21, 0},
-        {0.354, 0.22, 0.11, 2},
-        {0.519, 0.35, 0.15, 1},
-        {0.521, 0.20, 0.09, 0},
-        {0.677, 0.50, 0.19, 0},
-        {0.679, 0.20, 0.10, 2},
-        {0.842, 0.40, 0.17, 1},
-        {0.844, 0.20, 0.09, 2}
-    };
+    for (NSUInteger i = 0;
+         i < sizeof(columns) / sizeof(columns[0]);
+         i++) {
 
-    for (NSUInteger i = 0; i < sizeof(lines) / sizeof(lines[0]); i++) {
-        const struct DPLine *p = &lines[i];
+        const DPColumn *line = &columns[i];
 
-        UIColor *c;
-        if (p->color == 0) {
-            c = [UIColor colorWithRed:0.12 green:1.0 blue:0.32 alpha:p->alpha];
-        } else if (p->color == 1) {
-            c = [UIColor colorWithRed:0.72 green:0.12 blue:1.0 alpha:p->alpha];
-        } else {
-            c = [UIColor colorWithRed:0.15 green:0.45 blue:1.0 alpha:p->alpha];
-        }
-
-        CGContextSetFillColorWithColor(ctx, c.CGColor);
-        CGContextFillRect(ctx, CGRectMake(
-            p->x * w, 0, MAX(p->width / s, 0.35), h
-        ));
+        DPFill(
+            ctx,
+            line->x * width,
+            0,
+            line->widthPixels * pixel,
+            height,
+            line->color,
+            line->alpha
+        );
     }
 
-    // Едва заметные локальные тёмные повреждения.
-    CGContextSetFillColorWithColor(
-        ctx, [UIColor colorWithWhite:0 alpha:0.10].CGColor
-    );
+    // Слабые цветные ореолы вокруг некоторых линий.
+    DPFill(ctx, 0.077 * width, 0, 2 * pixel, height, 0, 0.035);
+    DPFill(ctx, 0.192 * width, 0, 2 * pixel, height, 1, 0.035);
+    DPFill(ctx, 0.663 * width, 0, 2 * pixel, height, 1, 0.04);
+    DPFill(ctx, 0.811 * width, 0, 2 * pixel, height, 0, 0.035);
 
-    CGContextFillRect(ctx, CGRectMake(w * 0.083, h * 0.28, 1.0, h * 0.13));
-    CGContextFillRect(ctx, CGRectMake(w * 0.352, h * 0.61, 0.8, h * 0.08));
-    CGContextFillRect(ctx, CGRectMake(w * 0.677, h * 0.18, 0.9, h * 0.17));
+    // Неравномерные затемнения внутри повреждённых колонок.
+    DPFill(ctx, 0.078 * width, 0.17 * height,
+           2 * pixel, 0.14 * height, 4, 0.10);
+
+    DPFill(ctx, 0.193 * width, 0.55 * height,
+           2 * pixel, 0.09 * height, 4, 0.08);
+
+    DPFill(ctx, 0.347 * width, 0.31 * height,
+           2 * pixel, 0.19 * height, 4, 0.09);
+
+    DPFill(ctx, 0.664 * width, 0.08 * height,
+           2 * pixel, 0.12 * height, 4, 0.08);
+
+    DPFill(ctx, 0.812 * width, 0.68 * height,
+           2 * pixel, 0.13 * height, 4, 0.10);
 
     // Короткие горизонтальные срывы изображения.
-    CGContextSetFillColorWithColor(
-        ctx, [UIColor colorWithRed:0.55 green:0.85 blue:0.75 alpha:0.07].CGColor
-    );
+    DPFill(ctx, 0.071 * width, 0.225 * height,
+           0.027 * width, pixel, 0, 0.22);
 
-    CGContextFillRect(ctx, CGRectMake(w * 0.075, h * 0.36, w * 0.035, 0.7));
-    CGContextFillRect(ctx, CGRectMake(w * 0.345, h * 0.64, w * 0.025, 0.6));
-    CGContextFillRect(ctx, CGRectMake(w * 0.668, h * 0.24, w * 0.04, 0.7));
+    DPFill(ctx, 0.187 * width, 0.571 * height,
+           0.019 * width, pixel, 1, 0.19);
+
+    DPFill(ctx, 0.339 * width, 0.395 * height,
+           0.034 * width, pixel, 2, 0.17);
+
+    DPFill(ctx, 0.655 * width, 0.145 * height,
+           0.031 * width, pixel, 0, 0.20);
+
+    DPFill(ctx, 0.805 * width, 0.724 * height,
+           0.025 * width, pixel, 1, 0.19);
+
+    // Ещё несколько почти незаметных локальных артефактов.
+    DPFill(ctx, 0.075 * width, 0.225 * height,
+           0.018 * width, pixel, 4, 0.12);
+
+    DPFill(ctx, 0.660 * width, 0.146 * height,
+           0.013 * width, pixel, 4, 0.10);
+
+    CGContextRestoreGState(ctx);
 }
 
 @end
+
+static BOOL DPShouldSkipProcess(void) {
+    NSString *bundleID =
+        NSBundle.mainBundle.bundleIdentifier.lowercaseString;
+
+    if (bundleID.length == 0) return YES;
+
+    NSArray *excluded = @[
+        @"org.coolstar.sileo",
+        @"com.saurik.cydia",
+        @"xyz.willy.zebra",
+        @"com.opa334.dopamine"
+    ];
+
+    if ([excluded containsObject:bundleID]) return YES;
+
+    NSString *extension =
+        NSBundle.mainBundle.bundleURL.pathExtension.lowercaseString;
+
+    if ([extension isEqualToString:@"appex"]) return YES;
+
+    if (NSClassFromString(@"UIApplication") == Nil) return YES;
+
+    return NO;
+}
+
+static BOOL DPWindowIsAllowed(UIWindow *window) {
+    if (!window) return NO;
+    if (window.hidden || window.alpha < 0.01) return NO;
+
+    // Не затрагиваем клавиатуры и системные окна
+    // с повышенным или пониженным уровнем.
+    if (fabs(window.windowLevel - UIWindowLevelNormal) > 0.01) {
+        return NO;
+    }
+
+    if (!window.rootViewController) return NO;
+
+    NSString *className =
+        NSStringFromClass(window.class).lowercaseString;
+
+    NSArray *excludedClasses = @[
+        @"keyboard",
+        @"texteffects",
+        @"remote",
+        @"alert"
+    ];
+
+    for (NSString *word in excludedClasses) {
+        if ([className containsString:word]) return NO;
+    }
+
+    return YES;
+}
+
+static void DPInstallDamageLayer(UIWindow *window) {
+    if (![NSThread isMainThread]) return;
+    if (!DPWindowIsAllowed(window)) return;
+
+    CALayer *host = window.layer;
+    CGRect hostBounds = host.bounds;
+
+    if (CGRectIsEmpty(hostBounds)) return;
+
+    DPDamageLayer *damage =
+        objc_getAssociatedObject(window, &kDPDamageLayerKey);
+
+    BOOL created = NO;
+
+    if (!damage) {
+        damage = [DPDamageLayer layer];
+        damage.zPosition = 9999.0;
+
+        objc_setAssociatedObject(
+            window,
+            &kDPDamageLayerKey,
+            damage,
+            OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        );
+
+        created = YES;
+    }
+
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+
+    damage.bounds = CGRectMake(
+        0,
+        0,
+        CGRectGetWidth(hostBounds),
+        CGRectGetHeight(hostBounds)
+    );
+
+    damage.position = CGPointMake(
+        CGRectGetMidX(hostBounds),
+        CGRectGetMidY(hostBounds)
+    );
+
+    if (damage.superlayer != host) {
+        [host addSublayer:damage];
+    }
+
+    [CATransaction commit];
+
+    if (created) {
+        [damage setNeedsDisplay];
+    }
+}
+
+%group DPWindowHooks
 
 %hook UIWindow
 
 - (void)layoutSubviews {
     %orig;
+    DPInstallDamageLayer(self);
+}
 
-    // Не трогаем клавиатуру, системные диалоги и специальные окна.
-    if (self.windowLevel != UIWindowLevelNormal) return;
+- (void)makeKeyAndVisible {
+    %orig;
+    DPInstallDamageLayer(self);
+}
 
-    DPDamageLayer *damage = nil;
+- (void)setRootViewController:(UIViewController *)controller {
+    %orig;
+    DPInstallDamageLayer(self);
+}
 
-    for (CALayer *layer in self.layer.sublayers) {
-        if ([layer.name isEqualToString:@"DEADPIXEL_DAMAGE"]) {
-            damage = (DPDamageLayer *)layer;
-            break;
-        }
-    }
+- (void)setHidden:(BOOL)hidden {
+    %orig;
 
-    if (!damage) {
-        damage = [DPDamageLayer layer];
-        damage.frame = self.bounds;
-        damage.contentsScale = UIScreen.mainScreen.scale;
-        [self.layer addSublayer:damage];
-    } else {
-        damage.frame = self.bounds;
+    if (!hidden) {
+        DPInstallDamageLayer(self);
     }
 }
 
 %end
+
+%end
+
+%ctor {
+    @autoreleasepool {
+        if (DPShouldSkipProcess()) return;
+
+        %init(DPWindowHooks);
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UIApplication *application =
+                [UIApplication sharedApplication];
+
+            for (UIWindow *window in application.windows) {
+                DPInstallDamageLayer(window);
+            }
+        });
+    }
+}
